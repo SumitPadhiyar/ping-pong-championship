@@ -1,0 +1,20 @@
+API Design doc
+RESTful API
+- Referee
+POST - /join
+{server_url : string, name : string}
+response - {player_id : int}
+
+- Player
+PUT - /game/{game_id}
+{opponent_player_id : int, play_order : int}
+
+POST - /shutdown
+
+DELETE - /game/{game_id}
+
+GET - /game/{game_id}/defence_numbers
+{defence_numbers : [int]}
+
+GET - /game/{game_id}/random_number
+{random_number : int}
