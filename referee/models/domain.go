@@ -7,14 +7,14 @@ type Player struct {
 }
 
 type Game struct {
-	ID             int
-	FirstPlayer    *GamePlayerInfo
-	SecondPlayer   *GamePlayerInfo
-	WinnerPlayerID int
+	ID           int
+	FirstPlayer  *GamePlayerInfo
+	SecondPlayer *GamePlayerInfo
+	WinnerPlayer *GamePlayerInfo
 }
 
 type GamePlayerInfo struct {
-	Player       *Player
-	Score        int
-	DefenceArray []int
+	Player     *Player
+	Score      int
+	DefenceMap map[int]struct{}
 }

@@ -9,7 +9,7 @@ response - {player_id : int}
 PUT - /game/{game_id}
 {opponent_player_id : int, play_order : int}
 
-POST - /shutdown
+PUT - /shutdown
 
 DELETE - /game/{game_id}
 

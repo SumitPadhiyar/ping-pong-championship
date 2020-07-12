@@ -3,7 +3,7 @@ package service
 import (
 	"encoding/json"
 	"net/http"
-	"ping_pong_championship/referee/commons"
+	"ping_pong_championship/commons"
 )
 
 const (
@@ -16,7 +16,7 @@ type joinRequest struct {
 	Name      string `json:"name"`
 }
 
-func join(w http.ResponseWriter, r *http.Request) {
+func Join(w http.ResponseWriter, r *http.Request) {
 	var req joinRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {

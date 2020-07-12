@@ -3,10 +3,11 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
-	"ping_pong_championship/client"
-	"ping_pong_championship/player"
-	"ping_pong_championship/referee/commons"
+	"ping_pong_championship/commons"
+	"ping_pong_championship/commons/client"
+	"ping_pong_championship/player/config"
 	"ping_pong_championship/referee/models"
 	"strconv"
 	"sync"
@@ -22,6 +23,7 @@ var (
 
 const (
 	maxPlayer = 8
+	winScore  = 5
 )
 
 type playerInfoToSend struct {
@@ -31,6 +33,10 @@ type playerInfoToSend struct {
 
 type playerDefenceResponse struct {
 	DefenceNumbers []int `json:"defence_numbers"`
+}
+
+type playerAttackNumberResponse struct {
+	AttackNumber int `json:"attack_number"`
 }
 
 func joinGame(url string, name string) (int, error) {
@@ -47,13 +53,15 @@ func joinGame(url string, name string) (int, error) {
 	currentPlayers = append(currentPlayers, &player)
 
 	if len(players) == maxPlayer {
-		go initGame()
+		go initGames()
 	}
 
 	return player.ID, nil
 }
 
-func initGame() {
+func initGames() {
+
+	var wg sync.WaitGroup
 
 	currentGames = nil
 
@@ -73,16 +81,62 @@ func initGame() {
 		games = append(games, game)
 		currentGames = append(currentGames, &game)
 
-		go startGame(game)
+		// wait for next goroutine
+		wg.Add(1)
 
+		go startGame(game, &wg)
+
+	}
+
+	// Waiting for all goroutines
+	wg.Wait()
+
+	currentPlayers = nil
+
+	// calculate currentPlayers
+	for _, g := range currentGames {
+		currentPlayers = append(currentPlayers, g.WinnerPlayer.Player)
+	}
+
+	if len(currentPlayers) == 1 {
+		declareChampions()
+	} else {
+		initGames()
+	}
+}
+
+func declareChampions() {
+
+	if len(currentPlayers) != 1 {
+		panic(errors.New("Invalid program state - len(currentPlayers) != 1 "))
+	}
+
+	fmt.Printf("The Champion is " + currentPlayers[0].Name)
+	fmt.Printf("GameID\tFinal Score\tWinner\n")
+
+	for _, g := range games {
+		fmt.Printf("%d\t%d\t%s\n", g.ID, g.WinnerPlayer.Score, g.WinnerPlayer.Player.Name)
 	}
 
 }
 
-func startGame(game models.Game) {
+func generateDefenceMap(defenceNos []int) map[int]struct{} {
+	defenceMap := make(map[int]struct{}, len(defenceNos))
+	var member struct{}
 
-	player1URL := "http;//" + game.FirstPlayer.Player.PlayerRemoteURL
-	player2URL := "http;//" + game.SecondPlayer.Player.PlayerRemoteURL
+	for _, n := range defenceNos {
+		defenceMap[n] = member
+	}
+
+	return defenceMap
+}
+
+func startGame(game models.Game, wg *sync.WaitGroup) {
+
+	defer wg.Done()
+
+	player1URL := "http://" + game.FirstPlayer.Player.PlayerRemoteURL
+	player2URL := "http://" + game.SecondPlayer.Player.PlayerRemoteURL
 
 	// Send game info to player 1
 
@@ -93,7 +147,7 @@ func startGame(game models.Game) {
 	requestData, err := json.Marshal(playerInfo)
 	commons.HandleIfError("startGame", err)
 
-	res, err := client.DoRequest(http.MethodPut, player1URL+player.GetGamePUTPath(strconv.Itoa(game.ID)), string(requestData))
+	res, err := client.DoRequest(http.MethodPut, player1URL+config.GetGamePUTPath(strconv.Itoa(game.ID)), string(requestData))
 	res.Body.Close()
 	commons.HandleIfError("startGame - GetGamePUTPath", err)
 
@@ -105,29 +159,101 @@ func startGame(game models.Game) {
 	requestData, err = json.Marshal(playerInfo)
 	commons.HandleIfError("startGame", err)
 
-	res, err = client.DoRequest(http.MethodPut, player2URL+player.GetGamePUTPath(strconv.Itoa(game.ID)), string(requestData))
+	res, err = client.DoRequest(http.MethodPut, player2URL+config.GetGamePUTPath(strconv.Itoa(game.ID)), string(requestData))
 	res.Body.Close()
 	commons.HandleIfError("startGame - GetGamePUTPath", err)
 
 	// Get defence numbers from player 1
 
-	res, err = client.DoRequest(http.MethodGet, player1URL+player.GetDefenceNumPath(strconv.Itoa(game.ID)), "")
-	defer res.Body.Close()
+	res, err = client.DoRequest(http.MethodGet, player1URL+config.GetDefenceNumPath(strconv.Itoa(game.ID)), "")
 	commons.HandleIfError("startGame - GetDefenceNumPath", err)
+	defer res.Body.Close()
 
 	var defenceNos playerDefenceResponse
 	err = json.NewDecoder(res.Body).Decode(&defenceNos)
 	commons.HandleIfError("startGame - GetDefenceNumPath - Json decoding", err)
-	game.FirstPlayer.DefenceArray = defenceNos.DefenceNumbers
+	game.FirstPlayer.DefenceMap = generateDefenceMap(defenceNos.DefenceNumbers)
 
 	// Get defence numbers from player 2
 
-	res, err = client.DoRequest(http.MethodGet, player2URL+player.GetDefenceNumPath(strconv.Itoa(game.ID)), "")
-	defer res.Body.Close()
+	res, err = client.DoRequest(http.MethodGet, player2URL+config.GetDefenceNumPath(strconv.Itoa(game.ID)), "")
 	commons.HandleIfError("startGame - GetDefenceNumPath", err)
+	defer res.Body.Close()
 
 	err = json.NewDecoder(res.Body).Decode(&defenceNos)
 	commons.HandleIfError("startGame - GetDefenceNumPath - Json decoding", err)
-	game.SecondPlayer.DefenceArray = defenceNos.DefenceNumbers
+	game.SecondPlayer.DefenceMap = generateDefenceMap(defenceNos.DefenceNumbers)
+
+	// start game here
+	playGame(game)
+
+}
+
+func playGame(game models.Game) {
+	firstPlayer := game.FirstPlayer
+	secondPlayer := game.SecondPlayer
+
+	gameIDStr := strconv.Itoa(game.ID)
+
+	player1URL := "http://" + firstPlayer.Player.PlayerRemoteURL + config.GetRandomPath(gameIDStr)
+	player2URL := "http://" + secondPlayer.Player.PlayerRemoteURL + config.GetRandomPath(gameIDStr)
+
+	offensivePlayer := firstPlayer
+	offensivePlayerURL := player1URL
+	defensivePlayer := secondPlayer
+	defensivePlayerURL := player2URL
+
+	for firstPlayer.Score < winScore && secondPlayer.Score < winScore {
+
+		// Ask for randoom no. from offensive player
+		res, err := client.DoRequest(http.MethodGet, offensivePlayerURL, "")
+		commons.HandleIfError("playGame - GetRandomPath "+offensivePlayerURL, err)
+		defer res.Body.Close()
+
+		// Get attack no
+		var attackNumber playerAttackNumberResponse
+		err = json.NewDecoder(res.Body).Decode(&attackNumber)
+		commons.HandleIfError("playGame - GetRandomPath "+offensivePlayerURL+" Json decoding", err)
+
+		_, isNumberFound := defensivePlayer.DefenceMap[attackNumber.AttackNumber]
+
+		if !isNumberFound {
+			offensivePlayer.Score = offensivePlayer.Score + 1
+		} else {
+			defensivePlayer.Score = defensivePlayer.Score + 1
+
+			// swap players
+			temp := offensivePlayer
+			offensivePlayer = defensivePlayer
+			defensivePlayer = temp
+
+			// swap players URL
+			tempURL := offensivePlayerURL
+			offensivePlayerURL = defensivePlayerURL
+			defensivePlayerURL = tempURL
+		}
+	}
+
+	var shutDownURL string
+
+	if firstPlayer.Score == winScore {
+		game.WinnerPlayer = firstPlayer
+		shutDownURL = "http://" + firstPlayer.Player.PlayerRemoteURL + config.GetShutDownPath()
+	} else {
+		game.WinnerPlayer = secondPlayer
+		shutDownURL = "http://" + secondPlayer.Player.PlayerRemoteURL + config.GetShutDownPath()
+	}
+
+	// Ask shutDown looser
+	res, err := client.DoRequest(http.MethodPut, shutDownURL, "")
+	fmt.Printf("%s - %s\n", "playGame - ShutDown "+shutDownURL, err.Error())
+	defer res.Body.Close()
+
+	deleteURL := "http://" + game.WinnerPlayer.Player.PlayerRemoteURL + config.GetDeletePath(strconv.Itoa(game.ID))
+
+	// Delete game
+	res, err = client.DoRequest(http.MethodDelete, deleteURL, "")
+	commons.HandleIfError("playGame - Delete "+deleteURL, err)
+	res.Body.Close()
 
 }
