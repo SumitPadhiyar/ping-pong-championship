@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	gamesMap map[string]*domain.Game
+	gamesMap = make(map[string]*domain.Game)
 )
 
 const maxRandomNo = 10

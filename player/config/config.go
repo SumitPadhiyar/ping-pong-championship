@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -17,6 +18,7 @@ var (
 	server     *http.Server
 	defenceLen int
 	name       string
+	port       string
 )
 
 func GetGamePUTPath(gameID string) string {
@@ -47,15 +49,28 @@ func GetPlayerName() string {
 	return name
 }
 
+func GetHostURL() string {
+	return "localhost:" + port
+}
+
+func GetPort() string {
+	return port
+}
+
 func ParseFlags() {
-	nameFlag := flag.String("name", "sample", "Name of the player")
-	defenceLenFlag := flag.Int("defence_length", 5, "Player's defence length")
+	portFlag := flag.String("p", "", "Port to start on")
+	nameFlag := flag.String("n", "sample", "Name of the player")
+	defenceLenFlag := flag.Int("d", 5, "Player's defence length")
 
 	flag.Parse()
 
 	name = *nameFlag
 	defenceLen = *defenceLenFlag
+	port = *portFlag
 
+	if port == "" {
+		log.Panic("port is empty")
+	}
 }
 
 func GetHttpServer() *http.Server {
@@ -64,7 +79,7 @@ func GetHttpServer() *http.Server {
 	}
 
 	server := &http.Server{
-		Addr:    ":8081",
+		Addr:    ":" + port,
 		Handler: nil,
 	}
 

@@ -2,7 +2,7 @@ package commons
 
 import (
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -21,6 +21,5 @@ func HandleIfError(methodName string, err error) {
 		return
 	}
 
-	fmt.Printf("%s - %s\n", methodName, err.Error())
-	panic(err)
+	log.Panicf("%s - %s\n", methodName, err.Error())
 }

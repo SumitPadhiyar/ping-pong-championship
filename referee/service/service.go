@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"ping_pong_championship/commons"
 	"ping_pong_championship/commons/client"
@@ -15,7 +16,7 @@ import (
 
 var (
 	players        []models.Player
-	games          []models.Game
+	games          []*models.Game
 	currentPlayers []*models.Player
 	currentGames   []*models.Game
 	mux            sync.Mutex
@@ -78,13 +79,13 @@ func initGames() {
 		game.FirstPlayer = &player1
 		game.SecondPlayer = &player2
 
-		games = append(games, game)
+		games = append(games, &game)
 		currentGames = append(currentGames, &game)
 
 		// wait for next goroutine
 		wg.Add(1)
 
-		go startGame(game, &wg)
+		go startGame(&game, &wg)
 
 	}
 
@@ -108,16 +109,22 @@ func initGames() {
 func declareChampions() {
 
 	if len(currentPlayers) != 1 {
-		panic(errors.New("Invalid program state - len(currentPlayers) != 1 "))
+		commons.HandleIfError("declareChampions", errors.New("Invalid program state - len(currentPlayers) != 1 "))
 	}
 
-	fmt.Printf("The Champion is " + currentPlayers[0].Name)
-	fmt.Printf("GameID\tFinal Score\tWinner\n")
+	fmt.Println("The Champion is " + currentPlayers[0].Name)
+	fmt.Println("GameID\tFinal Score\tWinner")
 
 	for _, g := range games {
-		fmt.Printf("%d\t%d\t%s\n", g.ID, g.WinnerPlayer.Score, g.WinnerPlayer.Player.Name)
+		fmt.Printf("  %d\t   %d\t\t%s\n", g.ID, g.WinnerPlayer.Score, g.WinnerPlayer.Player.Name)
 	}
 
+	shuDownHost("http://" + currentPlayers[0].PlayerRemoteURL + config.GetShutDownPath())
+
+	players = nil
+	games = nil
+	currentPlayers = nil
+	currentGames = nil
 }
 
 func generateDefenceMap(defenceNos []int) map[int]struct{} {
@@ -131,7 +138,7 @@ func generateDefenceMap(defenceNos []int) map[int]struct{} {
 	return defenceMap
 }
 
-func startGame(game models.Game, wg *sync.WaitGroup) {
+func startGame(game *models.Game, wg *sync.WaitGroup) {
 
 	defer wg.Done()
 
@@ -148,8 +155,8 @@ func startGame(game models.Game, wg *sync.WaitGroup) {
 	commons.HandleIfError("startGame", err)
 
 	res, err := client.DoRequest(http.MethodPut, player1URL+config.GetGamePUTPath(strconv.Itoa(game.ID)), string(requestData))
-	res.Body.Close()
 	commons.HandleIfError("startGame - GetGamePUTPath", err)
+	res.Body.Close()
 
 	// Send game info to player 2
 
@@ -160,8 +167,8 @@ func startGame(game models.Game, wg *sync.WaitGroup) {
 	commons.HandleIfError("startGame", err)
 
 	res, err = client.DoRequest(http.MethodPut, player2URL+config.GetGamePUTPath(strconv.Itoa(game.ID)), string(requestData))
-	res.Body.Close()
 	commons.HandleIfError("startGame - GetGamePUTPath", err)
+	res.Body.Close()
 
 	// Get defence numbers from player 1
 
@@ -189,7 +196,7 @@ func startGame(game models.Game, wg *sync.WaitGroup) {
 
 }
 
-func playGame(game models.Game) {
+func playGame(game *models.Game) {
 	firstPlayer := game.FirstPlayer
 	secondPlayer := game.SecondPlayer
 
@@ -238,22 +245,28 @@ func playGame(game models.Game) {
 
 	if firstPlayer.Score == winScore {
 		game.WinnerPlayer = firstPlayer
-		shutDownURL = "http://" + firstPlayer.Player.PlayerRemoteURL + config.GetShutDownPath()
+		shutDownURL = "http://" + secondPlayer.Player.PlayerRemoteURL + config.GetShutDownPath()
 	} else {
 		game.WinnerPlayer = secondPlayer
-		shutDownURL = "http://" + secondPlayer.Player.PlayerRemoteURL + config.GetShutDownPath()
+
+		shutDownURL = "http://" + firstPlayer.Player.PlayerRemoteURL + config.GetShutDownPath()
 	}
 
-	// Ask shutDown looser
-	res, err := client.DoRequest(http.MethodPut, shutDownURL, "")
-	fmt.Printf("%s - %s\n", "playGame - ShutDown "+shutDownURL, err.Error())
-	defer res.Body.Close()
+	// Ask looser to shutDown
+	shuDownHost(shutDownURL)
 
 	deleteURL := "http://" + game.WinnerPlayer.Player.PlayerRemoteURL + config.GetDeletePath(strconv.Itoa(game.ID))
 
 	// Delete game
-	res, err = client.DoRequest(http.MethodDelete, deleteURL, "")
+	res, err := client.DoRequest(http.MethodDelete, deleteURL, "")
 	commons.HandleIfError("playGame - Delete "+deleteURL, err)
 	res.Body.Close()
 
+}
+
+func shuDownHost(url string) {
+	_, err := client.DoRequest(http.MethodDelete, url, "")
+	if err != nil {
+		log.Printf("shuDownHost - %s %s \n", url, err.Error())
+	}
 }

@@ -1,4 +1,4 @@
-package referee
+package main
 
 import (
 	"fmt"
@@ -17,7 +17,7 @@ import (
 
 func main() {
 	r := mux.NewRouter()
-	r.HandleFunc("/join", services.Join).Methods("POST")
+	r.HandleFunc("/join", services.Join).Methods(http.MethodPost)
 
 	server := &http.Server{
 		Addr:    ":8080",
@@ -41,7 +41,7 @@ func main() {
 		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 		sig := <-c
 		err := server.Shutdown(context.Background())
-		errs <- fmt.Errorf("Singal: %s, ShutdownErr: %v", sig, err)
+		errs <- fmt.Errorf("Signal: %s, ShutdownErr: %v", sig, err)
 	}()
 
 	err := <-errs

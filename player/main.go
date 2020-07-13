@@ -1,4 +1,4 @@
-package player
+package main
 
 import (
 	"context"
@@ -22,11 +22,18 @@ func main() {
 	errs := make(chan error)
 
 	go func() {
-		log.Println("Listening on localhost:8081")
+		log.Printf("Listening on localhost:%s", config.GetPort())
 		err := server.ListenAndServe()
 		switch err {
 		case http.ErrServerClosed:
 		default:
+			errs <- err
+		}
+	}()
+
+	go func() {
+		err := transport.JoinWithRefree()
+		if err != nil {
 			errs <- err
 		}
 	}()
